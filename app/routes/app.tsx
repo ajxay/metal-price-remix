@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import type { HeadersFunction, LoaderFunctionArgs } from "@remix-run/node";
 import {
   Link,
@@ -5,12 +6,13 @@ import {
   useLoaderData,
   useRouteError,
   useLocation,
+  useNavigate,
 } from "@remix-run/react";
 import { boundary } from "@shopify/shopify-app-remix/server";
 import { AppProvider } from "@shopify/shopify-app-remix/react";
 import { NavMenu } from "@shopify/app-bridge-react";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
-import { Page, Tabs } from "@shopify/polaris";
+import { Box, Page, Tabs } from "@shopify/polaris";
 
 import { authenticate } from "../shopify.server";
 
@@ -25,29 +27,39 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export default function AppLayout() {
   const { apiKey } = useLoaderData<typeof loader>();
   const location = useLocation();
+  const navigate = useNavigate();
 
   const tabs = [
     {
       id: "dashboard",
       content: "Dashboard",
       url: "/app/dashboard",
-      isSelected: location.pathname === "/app/dashboard",
     },
     {
       id: "products",
       content: "Products",
       url: "/app/products",
-      isSelected: location.pathname === "/app/products",
     },
     {
       id: "settings",
       content: "Settings",
       url: "/app/settings",
-      isSelected: location.pathname === "/app/settings",
     },
   ];
 
-  const selectedTabIndex = tabs.findIndex((tab) => tab.isSelected);
+  const selectedTabIndex = tabs.findIndex((tab) =>
+    location.pathname.startsWith(tab.url),
+  );
+
+  const handleTabChange = useCallback(
+    (selectedTabIndex: number) => {
+      const tab = tabs[selectedTabIndex];
+      if (tab) {
+        navigate(tab.url);
+      }
+    },
+    [navigate, tabs],
+  );
 
   return (
     <AppProvider isEmbeddedApp apiKey={apiKey}>
@@ -59,9 +71,14 @@ export default function AppLayout() {
         <Link to="/app/tex">test page</Link>
       </NavMenu>
       <Page>
-        <Tabs tabs={tabs} selected={selectedTabIndex}>
+        <Tabs
+          tabs={tabs}
+          selected={selectedTabIndex}
+          onSelect={handleTabChange}
+        />
+        <Box paddingBlockStart="400">
           <Outlet />
-        </Tabs>
+        </Box>
       </Page>
     </AppProvider>
   );
