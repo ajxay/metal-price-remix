@@ -6,7 +6,6 @@ import {
   useFetcher,
   useRevalidator,
   useNavigate,
-  Link,
 } from "@remix-run/react";
 import {
   Page,
@@ -112,7 +111,7 @@ export default function ProductsPage() {
       id={product.id.toString()}
       key={product.id}
       position={index}
-      // onClick={() => navigate(`/app/products/${product.id}`)}
+      onClick={() => navigate(`/app/products/${product.id}`)}
     >
       <IndexTable.Cell>
         <Thumbnail
@@ -137,9 +136,9 @@ export default function ProductsPage() {
       <IndexTable.Cell>
         <Badge tone="attention">Pending</Badge>
       </IndexTable.Cell>
-      <Link to={`/app/products/${product.id}`} rel="home">
-        View
-      </Link>
+      {/* <Link to={`/app/products/${product.id}`} rel="home">
+          View
+        </Link> */}
       <IndexTable.Cell>
         <Button>Edit</Button>
       </IndexTable.Cell>
