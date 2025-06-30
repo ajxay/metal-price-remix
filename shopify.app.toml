@@ -3,7 +3,7 @@
 client_id = "b76216911e17ae72412dc4b71011a863"
 name = "metal-price-remix"
 handle = "metal-price-remix-1"
-application_url = "https://hotel-fact-class-competition.trycloudflare.com"
+application_url = "https://sand-added-wifi-bundle.trycloudflare.com"
 embedded = true
 
 [build]
@@ -26,7 +26,7 @@ api_version = "2025-04"
 scopes = "write_products"
 
 [auth]
-redirect_urls = ["https://hotel-fact-class-competition.trycloudflare.com/auth/callback", "https://hotel-fact-class-competition.trycloudflare.com/auth/shopify/callback", "https://hotel-fact-class-competition.trycloudflare.com/api/auth/callback"]
+redirect_urls = ["https://sand-added-wifi-bundle.trycloudflare.com/auth/callback", "https://sand-added-wifi-bundle.trycloudflare.com/auth/shopify/callback", "https://sand-added-wifi-bundle.trycloudflare.com/api/auth/callback"]
 
 [pos]
 embedded = false

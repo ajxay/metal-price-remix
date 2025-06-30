@@ -7,7 +7,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
   const shop = url.searchParams.get("shop");
   if (!shop) {
-    return redirect("/app");
+    return redirect("/app/dashboard");
   }
 
   return await login(request);
