@@ -44,7 +44,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  await authenticate.admin(request);
+  const { admin } = await authenticate.admin(request);
 
   const formData = await request.formData();
   const metalPrices = {
@@ -97,6 +97,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   ];
 
   try {
+    // Save metal prices
     for (const priceData of pricesToSave) {
       if (priceData.price > 0) {
         await prisma.metalPrice.create({
@@ -110,11 +111,257 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }
     }
 
-    return { success: true, timestamp: new Date().toISOString() };
+    // Get the active formula
+    const activeFormula = await prisma.formula.findFirst({
+      where: { isActive: true },
+    });
+
+    if (!activeFormula) {
+      return {
+        success: true,
+        timestamp: new Date().toISOString(),
+        message: "Metal prices saved successfully!",
+        warning: "No active formula found for price calculation.",
+      };
+    }
+
+    // Get all configured variants
+    const variantConfigs = await prisma.variantConfig.findMany();
+
+    if (variantConfigs.length === 0) {
+      return {
+        success: true,
+        timestamp: new Date().toISOString(),
+        message: "Metal prices saved successfully!",
+        warning: "No configured variants found for price calculation.",
+      };
+    }
+
+    // Get latest metal prices for calculation
+    const metalTypes = [
+      { metal: "Gold", karat: "24K", key: "gold24k" },
+      { metal: "Gold", karat: "22K", key: "gold22k" },
+      { metal: "Gold", karat: "18K", key: "gold18k" },
+      { metal: "Gold", karat: "14K", key: "gold14k" },
+      { metal: "Silver", karat: null, key: "silver" },
+      { metal: "Platinum", karat: null, key: "platinum" },
+      { metal: "Palladium", karat: null, key: "palladium" },
+    ];
+
+    const latestMetalPrices: any = {};
+    for (const type of metalTypes) {
+      const price = await prisma.metalPrice.findFirst({
+        where: { metal: type.metal, karat: type.karat },
+        orderBy: { createdAt: "desc" },
+      });
+      latestMetalPrices[type.key] = price?.price || 0;
+    }
+
+    // Calculate prices for all variants
+    const results = {
+      success: 0,
+      failed: 0,
+      errors: [] as string[],
+    };
+
+    // Process each variant
+    for (const config of variantConfigs) {
+      try {
+        // Calculate new price
+        const calculatedPrice = calculatePrice(
+          config,
+          latestMetalPrices,
+          activeFormula.value,
+        );
+
+        if (calculatedPrice <= 0) {
+          results.failed++;
+          results.errors.push(
+            `Invalid calculated price for variant ${config.shopifyVariantId}: ${calculatedPrice}`,
+          );
+          continue;
+        }
+
+        // Get variant details to find product ID
+        const variantResponse = await admin.graphql(
+          `#graphql
+            query getVariant($id: ID!) {
+              productVariant(id: $id) {
+                id
+                product {
+                  id
+                }
+              }
+            }`,
+          {
+            variables: {
+              id: config.shopifyVariantId,
+            },
+          },
+        );
+
+        const variantData = await variantResponse.json();
+        const productId = variantData.data.productVariant.product.id;
+
+        // Update price in Shopify
+        const response = await admin.graphql(
+          `#graphql
+            mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+              productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+                productVariants {
+                  id
+                  price
+                }
+                userErrors {
+                  field
+                  message
+                }
+              }
+            }`,
+          {
+            variables: {
+              productId: productId,
+              variants: [
+                {
+                  id: config.shopifyVariantId,
+                  price: calculatedPrice.toString(),
+                },
+              ],
+            },
+          },
+        );
+
+        const { data } = await response.json();
+
+        if (data.productVariantsBulkUpdate.userErrors.length > 0) {
+          results.failed++;
+          results.errors.push(
+            `Shopify error for variant ${config.shopifyVariantId}: ${data.productVariantsBulkUpdate.userErrors[0].message}`,
+          );
+          continue;
+        }
+
+        results.success++;
+      } catch (error) {
+        results.failed++;
+        results.errors.push(
+          `Error processing variant ${config.shopifyVariantId}: ${error instanceof Error ? error.message : "Unknown error"}`,
+        );
+      }
+    }
+
+    return {
+      success: true,
+      timestamp: new Date().toISOString(),
+      message: "Metal prices saved and product prices updated successfully!",
+      results,
+      formulaUsed: activeFormula.value,
+      totalProcessed: variantConfigs.length,
+    };
   } catch (error) {
     console.error("Error saving metal prices:", error);
     return { success: false, error: "Failed to save metal prices" };
   }
+};
+
+// Import the calculatePrice function from the API route
+const calculatePrice = (config: any, metalPrices: any, formulaType: string) => {
+  const {
+    metalType,
+    goldPurity,
+    metalWeight = 0,
+    diamondPrice = 0,
+    moissanitePrice = 0,
+    gemstonePrice = 0,
+    makingCharges = 0,
+    wastage = 0,
+    miscCharges = 0,
+    shippingCharges = 0,
+    markup = 0,
+    tax = 0,
+  } = config;
+
+  // Get metal price based on type and purity
+  let metalPricePerGram = 0;
+  if (metalType?.toLowerCase() === "gold") {
+    switch (goldPurity) {
+      case "24K":
+        metalPricePerGram = metalPrices.gold24k || 0;
+        break;
+      case "22K":
+        metalPricePerGram = metalPrices.gold22k || 0;
+        break;
+      case "18K":
+        metalPricePerGram = metalPrices.gold18k || 0;
+        break;
+      case "14K":
+        metalPricePerGram = metalPrices.gold14k || 0;
+        break;
+    }
+  } else if (metalType?.toLowerCase() === "silver") {
+    metalPricePerGram = metalPrices.silver || 0;
+  } else if (metalType?.toLowerCase() === "platinum") {
+    metalPricePerGram = metalPrices.platinum || 0;
+  } else if (metalType?.toLowerCase() === "palladium") {
+    metalPricePerGram = metalPrices.palladium || 0;
+  }
+
+  const metalCost = metalPricePerGram * metalWeight;
+
+  // Calculate based on formula type
+  let calculatedPrice = 0;
+
+  switch (formulaType) {
+    case "1":
+      calculatedPrice =
+        metalCost + diamondPrice + moissanitePrice + gemstonePrice;
+      calculatedPrice += calculatedPrice * (makingCharges / 100);
+      calculatedPrice += calculatedPrice * (wastage / 100);
+      calculatedPrice += calculatedPrice * (shippingCharges / 100);
+      calculatedPrice += miscCharges;
+      calculatedPrice += calculatedPrice * (markup / 100);
+      calculatedPrice += calculatedPrice * (tax / 100);
+      break;
+
+    case "2":
+      calculatedPrice = metalCost;
+      calculatedPrice += calculatedPrice * (makingCharges / 100);
+      calculatedPrice += calculatedPrice * (wastage / 100);
+      calculatedPrice += diamondPrice + moissanitePrice + gemstonePrice;
+      calculatedPrice += calculatedPrice * (shippingCharges / 100);
+      calculatedPrice += miscCharges;
+      calculatedPrice += calculatedPrice * (markup / 100);
+      calculatedPrice += calculatedPrice * (tax / 100);
+      break;
+
+    case "3":
+      calculatedPrice = metalCost;
+      calculatedPrice += calculatedPrice * (wastage / 100);
+      calculatedPrice += makingCharges;
+      calculatedPrice += diamondPrice + moissanitePrice + gemstonePrice;
+      calculatedPrice += calculatedPrice * (shippingCharges / 100);
+      calculatedPrice += miscCharges;
+      calculatedPrice += calculatedPrice * (markup / 100);
+      calculatedPrice += calculatedPrice * (tax / 100);
+      break;
+
+    case "4":
+      calculatedPrice = metalCost;
+      calculatedPrice += calculatedPrice * (wastage / 100);
+      calculatedPrice += makingCharges * metalWeight;
+      calculatedPrice += diamondPrice + moissanitePrice + gemstonePrice;
+      calculatedPrice += calculatedPrice * (shippingCharges / 100);
+      calculatedPrice += miscCharges;
+      calculatedPrice += calculatedPrice * (markup / 100);
+      calculatedPrice += calculatedPrice * (tax / 100);
+      break;
+
+    default:
+      calculatedPrice =
+        metalCost + diamondPrice + moissanitePrice + gemstonePrice;
+  }
+
+  return Math.round(calculatedPrice);
 };
 
 export default function Dashboard() {
@@ -127,6 +374,10 @@ export default function Dashboard() {
     ? new Date((fetcher.data as any).timestamp).toLocaleString()
     : null;
   const isSuccess = fetcher.data?.success;
+  const results = (fetcher.data as any)?.results;
+  const warning = (fetcher.data as any)?.warning;
+  const formulaUsed = (fetcher.data as any)?.formulaUsed;
+  const totalProcessed = (fetcher.data as any)?.totalProcessed;
 
   useEffect(() => {
     if (isSuccess) {
@@ -140,6 +391,7 @@ export default function Dashboard() {
       formData.append(key, String(value));
     });
     fetcher.submit(formData, { method: "POST" });
+    console.log(fetcher.data, "fetcher.data");
   };
 
   return (
@@ -152,9 +404,39 @@ export default function Dashboard() {
             onDismiss={() => (fetcher.data = undefined)}
           >
             <p>
-              The product prices were last updated on {lastUpdated}. All
-              products were updated successfully.
+              The product prices were last updated on {lastUpdated}.
+              {results && (
+                <span>
+                  {" "}
+                  Successfully updated {results.success} out of {totalProcessed}{" "}
+                  variants using Formula {formulaUsed}.
+                  {results.failed > 0 &&
+                    ` ${results.failed} variants failed to update.`}
+                </span>
+              )}
             </p>
+            {warning && (
+              <p style={{ marginTop: "8px", fontWeight: "bold" }}>
+                ⚠️ {warning}
+              </p>
+            )}
+            {results && results.errors && results.errors.length > 0 && (
+              <details style={{ marginTop: "8px" }}>
+                <summary style={{ cursor: "pointer", fontWeight: "bold" }}>
+                  View Errors ({results.errors.length})
+                </summary>
+                <ul style={{ marginTop: "8px", marginLeft: "20px" }}>
+                  {results.errors.map((error: string, index: number) => (
+                    <li
+                      key={index}
+                      style={{ fontSize: "14px", marginBottom: "4px" }}
+                    >
+                      {error}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
           </Banner>
         )}
 
@@ -173,7 +455,8 @@ export default function Dashboard() {
         <div style={{ marginTop: 8 }}>
           <Text as="p">
             Enter the latest metal prices to calculate and update the product
-            prices.
+            prices. Click "Refresh Prices" to save metal prices and
+            automatically update all configured product variants.
           </Text>
         </div>
         <div style={{ marginTop: "20px" }}>
@@ -258,7 +541,7 @@ export default function Dashboard() {
             </FormLayout.Group>
 
             <Button onClick={handleSubmit} loading={isSubmitting}>
-              Refresh Prices
+              {isSubmitting ? "Updating Prices..." : "Refresh Prices"}
             </Button>
           </FormLayout>
         </div>

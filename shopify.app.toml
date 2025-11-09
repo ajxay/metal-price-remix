@@ -1,14 +1,13 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = "b76216911e17ae72412dc4b71011a863"
 name = "metal-price-remix"
-handle = "metal-price-remix-1"
-application_url = "https://sand-added-wifi-bundle.trycloudflare.com"
+client_id = "b76216911e17ae72412dc4b71011a863"
+application_url = "https://deeply-mind-paper-joan.trycloudflare.com"
 embedded = true
 
 [build]
-include_config_on_deploy = true
 automatically_update_urls_on_dev = true
+dev_store_url = "https://metal-price-remix-1.myshopify.com"
 
 [webhooks]
 api_version = "2025-04"
@@ -22,11 +21,10 @@ api_version = "2025-04"
   uri = "/webhooks/app/scopes_update"
 
 [access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "write_products"
 
 [auth]
-redirect_urls = ["https://sand-added-wifi-bundle.trycloudflare.com/auth/callback", "https://sand-added-wifi-bundle.trycloudflare.com/auth/shopify/callback", "https://sand-added-wifi-bundle.trycloudflare.com/api/auth/callback"]
+redirect_urls = ["https://deeply-mind-paper-joan.trycloudflare.com/auth/callback", "https://deeply-mind-paper-joan.trycloudflare.com/auth/shopify/callback", "https://deeply-mind-paper-joan.trycloudflare.com/api/auth/callback"]
 
 [pos]
 embedded = false
